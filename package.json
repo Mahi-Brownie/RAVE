@@ -1,0 +1,19 @@
+{
+  "name": "RAYE",
+  "version": "1.0.0",
+  "private": true,
+  "description": "RAYE - Multi-service monorepo",
+  "scripts": {
+    "dev": "concurrently -n api,web -c blue,green \"pnpm --filter api start:dev\" \"pnpm --filter web dev\"",
+    "build": "pnpm --filter api build && pnpm --filter web build",
+    "start": "concurrently -n api,web \"pnpm --filter api start:prod\" \"pnpm --filter web start\"",
+    "db:migrate": "pnpm --filter api db:migrate",
+    "db:seed": "pnpm --filter api db:seed",
+    "db:studio": "pnpm --filter api db:studio",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "packageManager": "pnpm@10.33.0"
+}

@@ -1,0 +1,236 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearch", "postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [pgcrypto, pg_trgm, vector]
+}
+
+model Repository {
+  id            String     @id @default(cuid())
+  name          String
+  fullName      String     @unique
+  url           String
+  defaultBranch String     @default("main")
+  private       Boolean    @default(false)
+  importedById  String
+  importedBy    User       @relation(fields: [importedById], references: [id])
+  status        String     @default("pending")
+  fileCount     Int?
+  totalLines    Int?
+  language      String?
+  errorMessage  String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  analyses      Analysis[]
+  files         ProjectFile[]
+  explanations  Explanation[]
+  rebuildGuides RebuildGuide[]
+
+  @@index([importedById])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model User {
+  id                    String       @id @default(cuid())
+  email                 String       @unique
+  githubId               Int?         @unique
+  avatarUrl              String?
+  tier                   String       @default("anonymous")
+  creditsUsed            Int          @default(0)
+  hasCompletedOnboarding Boolean      @default(false)
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
+  repositories          Repository[]
+  sessions               Session[]
+}
+
+model Session {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id])
+  refreshTokenHash String
+  deviceInfo       String?
+  expiresAt        DateTime
+  revoked          Boolean  @default(false)
+  createdAt        DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Analysis {
+  id           String     @id @default(cuid())
+  repositoryId String
+  repository   Repository @relation(fields: [repositoryId], references: [id])
+  type         String
+  status       String     @default("queued")
+  progressPct  Int        @default(0)
+  resultJson   Json?
+  errorMessage String?
+  createdAt    DateTime   @default(now())
+  completedAt  DateTime?
+
+  @@index([repositoryId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ProjectFile {
+  id           String     @id @default(cuid())
+  repositoryId String
+  repository   Repository @relation(fields: [repositoryId], references: [id])
+  path         String
+  content      String     @db.Text
+  sizeBytes    Int
+  createdAt    DateTime   @default(now())
+  
+  @@unique([repositoryId, path])
+  @@index([repositoryId])
+}
+
+model Explanation {
+  id            String   @id @default(cuid())
+  repositoryId  String
+  repository    Repository @relation(fields: [repositoryId], references: [id])
+  filePath      String
+  depthLevel    Int
+  content       String   @db.Text
+  promptVersion String   @default("v1")
+  provider      String   @default("gemini")
+  fileHash      String
+  createdAt     DateTime @default(now())
+
+  @@unique([repositoryId, filePath, depthLevel])
+  @@index([repositoryId])
+}
+
+model RebuildGuide {
+  id           String   @id @default(cuid())
+  repositoryId  String
+  repository    Repository @relation(fields: [repositoryId], references: [id])
+  complexity   Int
+  totalSteps   Int
+  stepsJson    Json
+  createdAt    DateTime @default(now())
+
+  @@unique([repositoryId, complexity])
+  @@index([repositoryId])
+}
+
+model SecurityAudit {
+  id           String   @id @default(cuid())
+  repositoryId String
+  scanType     String   // SECRET_SCAN, DEPENDENCY_AUDIT, SANDBOX_CHECK
+  passed       Boolean
+  riskScore    Int
+  findings     Json     // Array of Finding objects
+  scannedAt    DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  @@index([repositoryId])
+}
+
+model ConceptNode {
+  id           String   @id @default(cuid())
+  name         String
+  category     String   // pattern, protocol, tool, language-feature, architecture
+  difficulty   Int      // 1-5
+  description  String   @db.Text
+  prerequisites ConceptEdge[] @relation("PrerequisiteFor")
+  dependents   ConceptEdge[] @relation("DependentOn")
+  repositoryId String?
+  filePath     String?
+  lineStart    Int?
+  lineEnd      Int?
+  createdAt    DateTime @default(now())
+
+  @@unique([name, repositoryId])
+  @@index([category])
+}
+
+model ConceptEdge {
+  id               String      @id @default(cuid())
+  prerequisiteId   String
+  dependentId      String
+  prerequisite     ConceptNode @relation("PrerequisiteFor", fields: [prerequisiteId], references: [id])
+  dependent        ConceptNode @relation("DependentOn", fields: [dependentId], references: [id])
+  relationshipType String      // requires, recommends, related
+
+  @@unique([prerequisiteId, dependentId])
+}
+
+model UserProgress {
+  id              String   @id @default(cuid())
+  userId          String
+  repositoryId    String
+  currentLevel    Int      @default(1)
+  masteredConcepts String[] @default([])
+  strugglingConcepts String[] @default([])
+  completedQuizzes Int      @default(0)
+  completedExercises Int     @default(0)
+  lastActivityAt   DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, repositoryId])
+  @@index([userId])
+}
+
+model Quiz {
+  id           String   @id @default(cuid())
+  repositoryId String
+  conceptId    String?
+  level        Int
+  title        String
+  questions    Json     // Array of Question objects
+  createdAt    DateTime @default(now())
+
+  @@index([repositoryId])
+  @@index([conceptId])
+}
+
+model QuizAttempt {
+  id        String   @id @default(cuid())
+  quizId    String
+  userId    String
+  score     Float
+  answers   Json     // Array of user answers
+  passedAt  DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([quizId])
+}
+
+model ReconstructionExercise {
+  id           String   @id @default(cuid())
+  repositoryId String
+  complexity   Int      // 1-3
+  title        String
+  description  String   @db.Text
+  stages       Json     // Array of Stage objects
+  createdAt    DateTime @default(now())
+
+  @@unique([repositoryId, complexity])
+  @@index([repositoryId])
+}
+
+model ReconstructionAttempt {
+  id            String   @id @default(cuid())
+  exerciseId    String
+  userId        String
+  currentStage  Int      @default(1)
+  totalStages   Int
+  completedAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([userId, exerciseId])
+  @@index([userId])
+}
